@@ -26,7 +26,7 @@ app.use(cookieParser());
 const port = process.env.PORT || 5000;
 
 // MongoDB Setup
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion } = require("mongodb");
 const uri = process.env.URI;
 
 const client = new MongoClient(uri, {
@@ -53,7 +53,6 @@ const verifyToken = (req, res, next) => {
   }
 };
 
-
 async function run() {
   try {
     await client.connect();
@@ -61,6 +60,7 @@ async function run() {
     console.log("Connected to MongoDB");
 
     const UsersCollection = client.db("UserDB").collection("Users");
+    const CoursesCollection = client.db("CourseDB").collection("Courses");
 
     app.post("/api/register", async (req, res) => {
       try {
@@ -185,11 +185,7 @@ async function run() {
     app.patch("/api/users/:email", verifyToken, async (req, res) => {
       try {
         const { email } = req.params;
-        const {
-          name,
-          phone,
-          avatarUrl,
-        } = req.body;
+        const { name, phone, avatarUrl } = req.body;
 
         // Authorization check
         if (req.user.email !== email) {
@@ -227,6 +223,75 @@ async function run() {
       }
     });
 
+    //Check admin or not
+    app.get("/users/admin/:email", verifyToken, async (req, res) => {
+      const email = req.params.email;
+      // check if token email matches route email
+      if (req.user.email !== email) {
+        return res.status(403).json({ isAdmin: false, message: "Forbidden" });
+      }
+
+      const user = await UsersCollection.findOne({ email });
+
+      // if no user found
+      if (!user) {
+        return res.status(404).json({ isAdmin: false });
+      }
+
+      res.send({ isAdmin: user.roles === "admin" });
+    });
+
+    // ================================== Course Endpoints ============================
+    // Create a new course
+    app.post("/api/courses", verifyToken, async (req, res) => {
+      try {
+        const { title, description, modules } = req.body;
+
+        if (
+          !title ||
+          !modules ||
+          !Array.isArray(modules) ||
+          modules.length === 0
+        ) {
+          return res
+            .status(400)
+            .json({ message: "Title and at least one module are required" });
+        }
+
+        const course = {
+          title,
+          description: description || "",
+          modules, // array of { title, content }
+          createdBy: req.user.email,
+          createdAt: new Date(),
+        };
+
+        const result = await CoursesCollection.insertOne(course);
+        res
+          .status(201)
+          .json({
+            message: "Course created successfully",
+            courseId: result.insertedId,
+          });
+      } catch (err) {
+        console.error("Create Course Error:", err);
+        res
+          .status(500)
+          .json({ message: "Failed to create course", error: err.message });
+      }
+    });
+
+    // Fetch all courses (optional)
+    app.get("/api/courses", verifyToken, async (req, res) => {
+      try {
+        const courses = await CoursesCollection.find().toArray();
+        res.status(200).json({ courses });
+      } catch (err) {
+        res
+          .status(500)
+          .json({ message: "Failed to fetch courses", error: err.message });
+      }
+    });
   } catch (error) {
     console.error("MongoDB connection failed", error);
   }
@@ -243,5 +308,3 @@ app.get("/", (req, res) => {
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
 });
-
-
