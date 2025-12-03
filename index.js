@@ -5,7 +5,7 @@ const cookieParser = require("cookie-parser");
 const app = express();
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
-
+const { ObjectId } = require("mongodb");
 // Middleware
 // app.use(
 //   cors({
@@ -245,7 +245,16 @@ async function run() {
     // Create a new course
     app.post("/api/courses", verifyToken, async (req, res) => {
       try {
-        const { title, description, modules } = req.body;
+        const {
+          title,
+          description,
+          instructor,
+          syllabus,
+          price,
+          category,
+          tags,
+          modules,
+        } = req.body;
 
         if (
           !title ||
@@ -261,18 +270,21 @@ async function run() {
         const course = {
           title,
           description: description || "",
-          modules, // array of { title, content }
+          instructor: instructor || "",
+          syllabus: syllabus || "",
+          price: price || 0,
+          category: category || "",
+          tags: Array.isArray(tags) ? tags : [],
+          modules,
           createdBy: req.user.email,
           createdAt: new Date(),
         };
 
         const result = await CoursesCollection.insertOne(course);
-        res
-          .status(201)
-          .json({
-            message: "Course created successfully",
-            courseId: result.insertedId,
-          });
+        res.status(201).json({
+          message: "Course created successfully",
+          courseId: result.insertedId,
+        });
       } catch (err) {
         console.error("Create Course Error:", err);
         res
@@ -282,14 +294,70 @@ async function run() {
     });
 
     // Fetch all courses (optional)
-    app.get("/api/courses", verifyToken, async (req, res) => {
+    app.get("/api/courses", async (req, res) => {
       try {
-        const courses = await CoursesCollection.find().toArray();
-        res.status(200).json({ courses });
+        const { page = 1, limit = 6, search, sort, category, tags } = req.query;
+        const query = {};
+
+        if (search) {
+          query.$or = [
+            { title: { $regex: search, $options: "i" } },
+            { instructor: { $regex: search, $options: "i" } },
+          ];
+        }
+
+        if (category) query.category = category;
+        if (tags) {
+          const tagsArray = tags.split(",").map((t) => t.trim());
+          query.tags = { $in: tagsArray };
+        }
+
+        let cursor = CoursesCollection.find(query);
+
+        // Sorting
+        if (sort === "price_asc") cursor = cursor.sort({ price: 1 });
+        if (sort === "price_desc") cursor = cursor.sort({ price: -1 });
+
+        const total = await CoursesCollection.countDocuments(query);
+        const totalPages = Math.ceil(total / limit);
+
+        const courses = await cursor
+          .skip((page - 1) * limit)
+          .limit(parseInt(limit))
+          .toArray();
+
+        res.json({ courses, totalPages });
       } catch (err) {
+        console.error(err);
         res
           .status(500)
           .json({ message: "Failed to fetch courses", error: err.message });
+      }
+    });
+
+    // Get single course by ID
+    app.get("/api/courses/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).json({ message: "Invalid course ID" });
+        }
+
+        const course = await CoursesCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
+        if (!course) {
+          return res.status(404).json({ message: "Course not found" });
+        }
+
+        res.status(200).json({ course });
+      } catch (err) {
+        console.error("Fetch single course error:", err);
+        res
+          .status(500)
+          .json({ message: "Failed to fetch course", error: err.message });
       }
     });
   } catch (error) {
