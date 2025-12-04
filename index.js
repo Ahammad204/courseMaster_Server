@@ -254,6 +254,8 @@ async function run() {
           category,
           tags,
           modules,
+          batches,
+          image
         } = req.body;
 
         if (
@@ -276,6 +278,8 @@ async function run() {
           category: category || "",
           tags: Array.isArray(tags) ? tags : [],
           modules,
+          batches: batches || [],
+          image: image || "",
           createdBy: req.user.email,
           createdAt: new Date(),
         };
