@@ -16,58 +16,60 @@ const assignmentRoutes = require("./routes/assignmentRoutes");
 
 const app = express();
 
-// CORS + cookies
+// ---------------
+// Serverless MongoDB Connection
+// ---------------
+
+let cachedDb = null;
+
+async function ensureDB() {
+  if (cachedDb) return cachedDb;
+  cachedDb = await connectDB(); // make sure connectDB returns a Promise
+  console.log("MongoDB connected");
+  return cachedDb;
+}
+
+// Ensure DB is connected for *all* requests before routes
+app.use(async (req, res, next) => {
+  try {
+    await ensureDB();
+    next();
+  } catch (err) {
+    console.error("Database connection failed:", err);
+    res.status(500).json({ error: "Database connection failed" });
+  }
+});
+
+// ---------------
+// Middlewares
+// ---------------
 app.use(cors(corsOptions));
 app.use(cookieParser());
 
-// ------------------
-// Stripe Webhook Route
-// ------------------
-// Must be before express.json() and use raw body parsing
+// Stripe webhook must use raw body and come before express.json
 app.use(
   "/webhook",
   express.raw({ type: "application/json" }),
   webhookRoutes
 );
 
-// Parse JSON for all other routes
+// JSON body parser for everything else
 app.use(express.json());
 
-// Root route
+// ---------------
+// Routes
+// ---------------
 app.get("/", (req, res) => res.send("Server is Running..."));
 
-// API routes
 app.use(authRoutes);
 app.use(userRoutes);
 app.use(courseRoutes);
 app.use(paymentRoutes);
 app.use(assignmentRoutes);
 
-// ------------------
-// Serverless MongoDB Connection
-// ------------------
-let cachedDb = null;
-
-async function connectToDB() {
-  if (cachedDb) return cachedDb;
-  try {
-    cachedDb = await connectDB();
-    console.log("MongoDB connected");
-    return cachedDb;
-  } catch (err) {
-    console.error("DB connection failed:", err);
-    throw err; // Fail gracefully
-  }
-}
-
-// Wrap each request to ensure DB is connected
-app.use(async (req, res, next) => {
-  try {
-    await connectToDB();
-    next();
-  } catch (err) {
-    res.status(500).send("Database connection failed");
-  }
-});
-
+// ---------------
+// Vercel export
+// ---------------
 module.exports = app;
+// If you're using ESM or Vercel "Express" framework detection, you can also do:
+// export default app;
